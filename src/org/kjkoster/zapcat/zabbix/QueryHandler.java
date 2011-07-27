@@ -16,22 +16,18 @@ package org.kjkoster.zapcat.zabbix;
  * Zapcat. If not, see <http://www.gnu.org/licenses/>.
  */
 
+import org.apache.log4j.Logger;
+import org.kjkoster.zapcat.Trapper;
+
+import javax.management.*;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.util.StringTokenizer;
-
-import javax.management.AttributeNotFoundException;
-import javax.management.InstanceNotFoundException;
-import javax.management.MBeanException;
-import javax.management.MalformedObjectNameException;
-import javax.management.ObjectName;
-import javax.management.ReflectionException;
-
-import org.apache.log4j.Logger;
-import org.kjkoster.zapcat.Trapper;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * A JMX query handler for Zabbix. The query handler reads the query from the
@@ -44,6 +40,7 @@ import org.kjkoster.zapcat.Trapper;
  */
 final class QueryHandler implements Runnable {
     private static final Logger log = Logger.getLogger(QueryHandler.class);
+    private static final String VERSION = "zapcat 1.4";
 
     private final Socket socket;
 
@@ -55,13 +52,18 @@ final class QueryHandler implements Runnable {
      */
     private static final String NOTSUPPORTED = "ZBX_NOTSUPPORTED";
 
+    //zabbix key must have this pattern, jmx["name","attribute", <ignored>]
+    private static final Pattern COMMA_PATTERN = Pattern.compile("([0-9a-zA-Z.-_]+)\\[\"([^\"\\]]+)\",\"([^\"\\]]+)\".*\\]");
+    private MBeanServer mBeanServer;
+
     /**
      * Create a new query handler.
-     * 
+     *
+     * @param mBeanServer
      * @param socket
-     *            The socket that was accepted.
      */
-    public QueryHandler(final Socket socket) {
+    public QueryHandler(MBeanServer mBeanServer, final Socket socket) {
+        this.mBeanServer = mBeanServer;
         this.socket = socket;
     }
 
@@ -75,6 +77,8 @@ final class QueryHandler implements Runnable {
                 do {
                     handleQuery();
                 } while (socket.getInputStream().available() > 0);
+            }catch(Exception ex){
+                log.error("error handling equery", ex);
             } finally {
                 if (socket != null) {
                     socket.close();
@@ -118,24 +122,44 @@ final class QueryHandler implements Runnable {
     }
 
     private String response(final String query) {
+        //new query style compatible with zabbix 1.8.4 and above
+        {
+            Matcher matcher = COMMA_PATTERN.matcher(query);
+            boolean didFindMatch = matcher.find();
+            if (didFindMatch) {
+                String op = matcher.group(1);
+                String objectName = matcher.group(2);
+                String attribute = matcher.group(3);
+                log.debug("op = " + op + ", " + "objectName = " + objectName + ", " + "attribute = " + attribute);
+                try {
+                    return JMXHelper.query(mBeanServer, new ObjectName(objectName), attribute);
+                } catch (Exception ex) {
+                    log.debug("jmx error", ex);
+                    return NOTSUPPORTED;
+                }
+            }
+        }
+
+
+
         final int lastOpen = query.lastIndexOf('[');
         final int lastClose = query.lastIndexOf(']');
         String attribute = null;
         if (lastOpen >= 0 && lastClose >= 0) {
             attribute = query.substring(lastOpen + 1, lastClose);
         }
-        
+
         /*
-         *  This allows testing of trapper functionality from within this framework.
-         *  Set key to trap[zabbixServer][host][key][value] and the agent will create
-         *  a trapper that pushes to the zabbix server. (e.g. use with zabbix_get -k"trap...")
-         *  
-         *  This needs some work. The agent should be able to receive a trap command
-         *  to schedule a trapper client, or work in a similar method to the way zabbix
-         *  agent active checks work.
-         *  
-         *  This command should not be used at present. Stick to jmx / jmx_op.
-         */
+        *  This allows testing of trapper functionality from within this framework.
+        *  Set key to trap[zabbixServer][host][key][value] and the agent will create
+        *  a trapper that pushes to the zabbix server. (e.g. use with zabbix_get -k"trap...")
+        *
+        *  This needs some work. The agent should be able to receive a trap command
+        *  to schedule a trapper client, or work in a similar method to the way zabbix
+        *  agent active checks work.
+        *
+        *  This command should not be used at present. Stick to jmx / jmx_op.
+        */
         if (query.startsWith("trap")) {
         	try {
         		StringTokenizer trapperParms = new StringTokenizer(query.substring(query.indexOf('[')), "[]", false);
@@ -153,23 +177,23 @@ final class QueryHandler implements Runnable {
         		log.debug("Could not send trap from query " + query);
         		return NOTSUPPORTED;
         	}
-        	
+
         } else if (query.startsWith("jmx_op")) {
         	String query_string = query;
         	int index = query_string.indexOf(']');
-        	
+
         	if (index < 0)
         		return NOTSUPPORTED;
-        	
+
         	String objectName = query_string.substring(7, index);
         	query_string = query_string.substring(index+2);
         	index = query_string.indexOf(']');
         	if (index < 0)
         		return NOTSUPPORTED;
-        	
+
         	String op_name = query_string.substring(0, index);
         	query_string = query_string.substring(index);
-        	
+
         	try {
         		return JMXHelper.op_query(objectName, op_name, query_string);
         	} catch (InstanceNotFoundException e) {
@@ -184,7 +208,7 @@ final class QueryHandler implements Runnable {
         	} catch (Exception e) {
         		log.debug("exception with jmx_op", e);
         	}
-        	
+
         } else if (query.startsWith("jmx")) {
             final int firstClose = query.lastIndexOf(']', lastOpen);
             final int firstOpen = query.indexOf('[');
@@ -195,7 +219,7 @@ final class QueryHandler implements Runnable {
             final String objectName = query
                     .substring(firstOpen + 1, firstClose);
             try {
-                return JMXHelper.query(new ObjectName(objectName), attribute);
+                return JMXHelper.query(mBeanServer, new ObjectName(objectName), attribute);
             } catch (InstanceNotFoundException e) {
                 log.debug("no bean named " + objectName, e);
                 return NOTSUPPORTED;
@@ -222,7 +246,7 @@ final class QueryHandler implements Runnable {
         } else if (query.equals("agent.ping")) {
             return "1";
         } else if (query.equals("agent.version")) {
-            return "zapcat 1.3-beta";
+            return VERSION;
         }
 
         return NOTSUPPORTED;

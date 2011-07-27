@@ -16,20 +16,28 @@ package org.kjkoster.zapcat.test;
  * Zapcat. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
+import com.jamonapi.Monitor;
+import com.jamonapi.MonitorFactory;
+import org.apache.log4j.BasicConfigurator;
+import org.junit.After;
+import org.junit.Test;
+import org.kjkoster.zapcat.Agent;
+import org.kjkoster.zapcat.zabbix.ZabbixAgent;
+import org.springframework.jmx.export.MBeanExporter;
 
+import javax.management.MBeanServer;
+import javax.management.MBeanServerFactory;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.net.InetAddress;
 import java.net.Socket;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Properties;
 
-import org.junit.After;
-import org.junit.Test;
-import org.kjkoster.zapcat.Agent;
-import org.kjkoster.zapcat.zabbix.ZabbixAgent;
+import static org.junit.Assert.*;
 
 /**
  * A test case to test that the protocol configuration works.
@@ -37,6 +45,10 @@ import org.kjkoster.zapcat.zabbix.ZabbixAgent;
  * @author Kees Jan Koster &lt;kjkoster@kjkoster.org&gt;
  */
 public class ZabbixAgentProtocolTest {
+    static{
+        BasicConfigurator.configure();
+    }
+
     final Properties originalProperties = (Properties) System.getProperties()
             .clone();
 
@@ -292,5 +304,91 @@ public class ZabbixAgentProtocolTest {
 
         socket.close();
         agent.stop();
+    }
+    @Test
+    public void testNewKeys() throws Exception {
+        final Agent agent = new org.kjkoster.zapcat.zabbix.ZabbixAgent(InetAddress.getLocalHost(), 1099);
+        // give the agent some time to open the port
+        Thread.sleep(100);
+        query(1099, "jmx[\"jmx[\"org.kjkoster.zapcat:type=Agent,port=1099\",\"Port\"]", "1099".getBytes());
+        agent.stop();
+    }
+
+    private void query(int port, String key, byte[] expected) throws IOException {
+        final Socket socket = new Socket(InetAddress.getLocalHost(), port);
+
+        final Writer out = new OutputStreamWriter(socket.getOutputStream());
+        out.write(key);
+        out.write('\n');
+        out.flush();
+
+        final InputStream in = socket.getInputStream();
+        final byte[] buffer = new byte[1024];
+        in.read(buffer);
+        socket.close();
+        System.out.println(new String(buffer));
+        assertEquals('Z', buffer[0]);
+        assertEquals('B', buffer[1]);
+        assertEquals('X', buffer[2]);
+        assertEquals('D', buffer[3]);
+        assertEquals((byte) 0x01, buffer[4]);
+        byte[] actual = Arrays.copyOfRange(buffer, 13, 13 + expected.length);
+        assertArrayEquals(expected, actual);
+//        assertTrue(Arrays.equals(expected, actual));
+    }
+
+    @Test
+    public void testMultiAgent() throws Exception {
+        ZabbixAgent agent1;
+        {
+            MBeanServer mbeanServer = MBeanServerFactory.createMBeanServer();
+            agent1 = new ZabbixAgent(InetAddress.getLocalHost(), 1098);
+            agent1.setMbeanServer(mbeanServer);
+
+            MBeanExporter exporter = new MBeanExporter();
+            exporter.setServer(agent1.getMbeanServer());
+
+            Monitor monitor = MonitorFactory.getMonitor("monitor1", "");
+            monitor.setHits(1);
+            HashMap<String, Object> map = new HashMap<String, Object>();
+            map.put("test:name=monitor", monitor);
+            exporter.setBeans(map);
+
+            exporter.afterPropertiesSet();
+        }
+        ZabbixAgent agent2;
+        {
+            MBeanServer mbeanServer = MBeanServerFactory.createMBeanServer();
+            agent2 = new ZabbixAgent(InetAddress.getLocalHost(), 1099);
+            agent2.setMbeanServer(mbeanServer);
+
+            MBeanExporter exporter = new MBeanExporter();
+            exporter.setServer(agent2.getMbeanServer());
+
+            Monitor monitor = MonitorFactory.getMonitor("monitor2", "");
+            monitor.setHits(2);
+            HashMap<String, Object> map = new HashMap<String, Object>();
+            map.put("test:name=monitor", monitor);
+            exporter.setBeans(map);
+
+            exporter.afterPropertiesSet();
+        }
+        
+        Thread.sleep(1000);
+        query(1098, "jmx[\"test:name=monitor\",\"Hits\"]", new byte[]{'1'});
+        query(1099, "jmx[\"test:name=monitor\",\"Hits\"]", new byte[]{'2'});
+
+        agent1.stop();
+        agent2.stop();
+    }
+
+    @Test
+    public void testAgentVersion() throws Exception {
+        final Agent agent = new org.kjkoster.zapcat.zabbix.ZabbixAgent(InetAddress.getLocalHost(), 1099);
+        // give the agent some time to open the port
+        Thread.sleep(100);
+        query(1099, "agent.version", "zapcat 1.4".getBytes());
+        agent.stop();
+
     }
 }

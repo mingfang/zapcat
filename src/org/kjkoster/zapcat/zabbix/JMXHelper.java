@@ -16,22 +16,13 @@ package org.kjkoster.zapcat.zabbix;
  * Zapcat. If not, see <http://www.gnu.org/licenses/>.
  */
 
+import org.apache.log4j.Logger;
+import org.kjkoster.zapcat.util.AttributeFormater;
+
+import javax.management.*;
+import javax.management.openmbean.CompositeData;
 import java.lang.management.ManagementFactory;
 import java.util.StringTokenizer;
-
-import javax.management.AttributeNotFoundException;
-import javax.management.InstanceNotFoundException;
-import javax.management.MBeanException;
-import javax.management.MBeanInfo;
-import javax.management.MBeanOperationInfo;
-import javax.management.MBeanParameterInfo;
-import javax.management.MBeanServer;
-import javax.management.ObjectInstance;
-import javax.management.ObjectName;
-import javax.management.ReflectionException;
-import javax.management.openmbean.CompositeData;
-
-import org.apache.log4j.Logger;
 
 /**
  * A helper class that abstracts from JMX.
@@ -85,23 +76,23 @@ public final class JMXHelper {
      * @throws AttributeNotFoundException
      *             When the specified attribute could not be found.
      */
-    public static String query(final ObjectName objectName,
-            final String attribute) throws InstanceNotFoundException,
-            AttributeNotFoundException, MBeanException, ReflectionException {
+    public static String query(
+            final MBeanServer mBeanServer,
+            final ObjectName objectName,
+            final String attribute)
+    throws InstanceNotFoundException, AttributeNotFoundException, MBeanException, ReflectionException {
         log.debug("JMX query[" + objectName + "][" + attribute + "]");
 
-        final ObjectInstance bean = getMBeanServer().getObjectInstance(
-                objectName);
+        final ObjectInstance bean = mBeanServer.getObjectInstance(objectName);
         log.debug("found MBean class " + bean.getClassName());
 
         final int dot = attribute.indexOf('.');
         if (dot < 0) {
-            final Object ret = getMBeanServer().getAttribute(objectName,
-                    attribute);
-            return ret == null ? null : ret.toString();
+            final Object ret = mBeanServer.getAttribute(objectName, attribute);
+            return AttributeFormater.format(ret);
         }
 
-        return resolveFields((CompositeData) getMBeanServer().getAttribute(
+        return resolveFields((CompositeData) mBeanServer.getAttribute(
                 objectName, attribute.substring(0, dot)), attribute
                 .substring(dot + 1));
     }

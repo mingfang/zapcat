@@ -30,6 +30,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import javax.management.MBeanServer;
 import javax.management.ObjectName;
 
 import org.apache.log4j.Logger;
@@ -87,6 +88,7 @@ public final class ZabbixAgent implements Agent, Runnable {
     private volatile boolean stopping = false;
 
     private final Set<String> whitelist;
+    private MBeanServer mbeanServer = java.lang.management.ManagementFactory.getPlatformMBeanServer();
 
     /**
      * Configure a new Zabbix agent. Each agent needs the local port number to
@@ -193,7 +195,7 @@ public final class ZabbixAgent implements Agent, Runnable {
                         + accepted.getInetAddress().getHostAddress());
 
                 if (acceptedByWhitelist(accepted.getInetAddress())) {
-                    handlers.execute(new QueryHandler(accepted));
+                    handlers.execute(new QueryHandler(mbeanServer, accepted));
                 } else {
                     log.warn("rejecting ip address "
                             + accepted.getInetAddress().getHostAddress()
@@ -243,6 +245,14 @@ public final class ZabbixAgent implements Agent, Runnable {
         }
 
         return false;
+    }
+
+    public void setMbeanServer(MBeanServer mbeanServer) {
+        this.mbeanServer = mbeanServer;
+    }
+
+    public MBeanServer getMbeanServer() {
+        return mbeanServer;
     }
 
     /**

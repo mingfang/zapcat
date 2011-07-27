@@ -16,24 +16,21 @@ package org.kjkoster.zapcat.test;
  * Zapcat. If not, see <http://www.gnu.org/licenses/>.
  */
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.fail;
-
-import java.net.ConnectException;
-import java.net.InetAddress;
-import java.net.Socket;
-import java.util.Properties;
-
-import javax.management.InstanceNotFoundException;
-import javax.management.ObjectName;
-
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.kjkoster.zapcat.Agent;
 import org.kjkoster.zapcat.zabbix.JMXHelper;
 import org.kjkoster.zapcat.zabbix.ZabbixAgent;
+
+import javax.management.InstanceNotFoundException;
+import javax.management.ObjectName;
+import java.net.ConnectException;
+import java.net.InetAddress;
+import java.net.Socket;
+import java.util.Properties;
+
+import static org.junit.Assert.*;
 
 /**
  * Test cases to test the configuration options of the Zabbix agent.
@@ -133,7 +130,7 @@ public class ZabbixAgentConfigurationTest {
 
     private void assertAgentDown(final int port) throws Exception {
         try {
-            JMXHelper.query(new ObjectName(
+            JMXHelper.query(java.lang.management.ManagementFactory.getPlatformMBeanServer(), new ObjectName(
                     "org.kjkoster.zapcat:type=Agent,port=" + port), "Port");
             fail();
         } catch (InstanceNotFoundException e) {
@@ -151,9 +148,10 @@ public class ZabbixAgentConfigurationTest {
         // give the agent some time to open the port
         Thread.sleep(100);
 
-        assertEquals("" + port, JMXHelper.query(new ObjectName(
+        assertEquals("" + port, JMXHelper.query(java.lang.management.ManagementFactory.getPlatformMBeanServer(),
+                new ObjectName(
                 "org.kjkoster.zapcat:type=Agent,port=" + port), "Port"));
-        assertEquals("*", JMXHelper.query(new ObjectName(
+        assertEquals("*", JMXHelper.query(java.lang.management.ManagementFactory.getPlatformMBeanServer(), new ObjectName(
                 "org.kjkoster.zapcat:type=Agent,port=" + port), "BindAddress"));
         final Socket touch = new Socket(InetAddress.getLocalHost(), port);
         touch.close();

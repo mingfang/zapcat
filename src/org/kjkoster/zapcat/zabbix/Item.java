@@ -143,6 +143,6 @@ final class Item {
             return value;
         }
 
-        return JMXHelper.query(objectName, attribute);
+        return JMXHelper.query(java.lang.management.ManagementFactory.getPlatformMBeanServer(), objectName, attribute);
     }
 }
