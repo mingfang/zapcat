@@ -10,7 +10,7 @@
     
     <groupId>zapcat</groupId>
     <artifactId>zapcat</artifactId>
-    <version>1.4.0.0-SNAPSHOT</version>
+    <version>1.4.0.0</version>
     <packaging>jar</packaging>
 
     <name>zapcat</name>
